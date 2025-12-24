@@ -1,0 +1,109 @@
+
+services:
+  # --- METADATA DATABASE (CockroachDB/Postgres) ---
+  db:
+    image: postgres:15-alpine
+    container_name: omnicloud-metadata-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5435:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  # --- CLOUD PROVIDER SIMULATIONS (MinIO) ---
+
+  # Cloud 1: AWS US-East Simulation
+  cloud-aws-us:
+    image: minio/minio
+    container_name: cloud-1-aws-us
+    command: server /data --console-address ":9091"
+    environment:
+      MINIO_ROOT_USER: ${AWS_USER}
+      MINIO_ROOT_PASSWORD: ${AWS_PASSWORD}
+    ports:
+      - "9001:9000"
+      - "9091:9091"
+    volumes:
+      - cloud1_data:/data
+
+  # Cloud 2: AWS EU-Central Simulation
+  cloud-aws-eu:
+    image: minio/minio
+    container_name: cloud-2-aws-eu
+    command: server /data --console-address ":9092"
+    environment:
+      MINIO_ROOT_USER: ${AWS_USER}
+      MINIO_ROOT_PASSWORD: ${AWS_PASSWORD}
+    ports:
+      - "9002:9000"
+      - "9092:9092"
+    volumes:
+      - cloud2_data:/data
+
+  # Cloud 3: Azure Blob Storage Simulation
+  cloud-azure:
+    image: minio/minio
+    container_name: cloud-3-azure
+    command: server /data --console-address ":9093"
+    environment:
+      MINIO_ROOT_USER: ${AZURE_USER}
+      MINIO_ROOT_PASSWORD: ${AZURE_PASSWORD}
+    ports:
+      - "9003:9000"
+      - "9093:9093"
+    volumes:
+      - cloud3_data:/data
+
+  # Cloud 4: Google Cloud Storage Simulation
+  cloud-gcp:
+    image: minio/minio
+    container_name: cloud-4-gcp
+    command: server /data --console-address ":9094"
+    environment:
+      MINIO_ROOT_USER: ${GCP_USER}
+      MINIO_ROOT_PASSWORD: ${GCP_PASSWORD}
+    ports:
+      - "9004:9000"
+      - "9094:9094"
+    volumes:
+      - cloud4_data:/data
+
+  # Cloud 5: Oracle Cloud Simulation
+  cloud-oracle:
+    image: minio/minio
+    container_name: cloud-5-oracle
+    command: server /data --console-address ":9095"
+    environment:
+      MINIO_ROOT_USER: ${ORACLE_USER}
+      MINIO_ROOT_PASSWORD: ${ORACLE_PASSWORD}
+    ports:
+      - "9005:9000"
+      - "9095:9095"
+    volumes:
+      - cloud5_data:/data
+
+  # Cloud 6: Local/Private Cloud Simulation
+  cloud-local:
+    image: minio/minio
+    container_name: cloud-6-local
+    command: server /data --console-address ":9096"
+    environment:
+      MINIO_ROOT_USER: ${LOCAL_USER}
+      MINIO_ROOT_PASSWORD: ${LOCAL_PASSWORD}
+    ports:
+      - "9006:9000"
+      - "9096:9096"
+    volumes:
+      - cloud6_data:/data
+
+volumes:
+  db_data:
+  cloud1_data:
+  cloud2_data:
+  cloud3_data:
+  cloud4_data:
+  cloud5_data:
+  cloud6_data:
