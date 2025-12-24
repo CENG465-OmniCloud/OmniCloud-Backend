@@ -22,11 +22,13 @@ configurations {
 
 repositories {
 	mavenCentral()
+	maven { url 'https://jitpack.io' } // <--- ADD THIS
 }
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'junit:junit:4.13.1'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -35,6 +37,13 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 	implementation 'io.minio:minio:8.6.0'
+	implementation 'com.github.Backblaze:JavaReedSolomon:master-SNAPSHOT'
+
+
+	// The most important one for testing
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// Keep this for JUnit 5 engine
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 }
 
