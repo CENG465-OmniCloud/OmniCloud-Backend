@@ -56,7 +56,7 @@ We simulate 6 distinct Cloud Providers (AWS, Azure, GCP, etc.) and a Metadata Da
 Run the following command in the project root:
 
 ```bash
-docker-compose --env-file ./.env up -d
+docker-compose --.env-file ./..env up -d
 ```
 
 Note: The --env-file flag ensures Docker reads your secrets correctly.
