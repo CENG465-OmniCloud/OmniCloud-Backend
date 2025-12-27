@@ -4,8 +4,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
+import java.util.Map;
+
 @Configuration
 public class MinioConfig {
+
+    public static final String COMMON_BUCKET_NAME = "omnicloud-data";
 
     // --- CLOUD 1: AWS US-EAST ---
     @Value("${minio.aws.endpoint:http://localhost:9001}")
@@ -81,10 +86,27 @@ public class MinioConfig {
         return buildClient(localEndpoint, localAccessKey, localSecretKey);
     }
 
+    @Bean
+    public Map<Integer, MinioClient> minioClients() {
+        Map<Integer, MinioClient> clients = new HashMap<>();
+        clients.put(0, awsClient());
+        clients.put(1, awsEuClient());
+        clients.put(2, azureClient());
+        clients.put(3, gcpClient());
+        clients.put(4, oracleClient());
+        clients.put(5, localClient());
+        return clients;
+    }
+
+    // Helper method
     private MinioClient buildClient(String endpoint, String accessKey, String secretKey) {
-        return MinioClient.builder()
-                .endpoint(endpoint)
-                .credentials(accessKey, secretKey)
-                .build();
+        try {
+            return MinioClient.builder()
+                    .endpoint(endpoint)
+                    .credentials(accessKey, secretKey)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize MinIO client for endpoint: " + endpoint, e);
+        }
     }
 }
