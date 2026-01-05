@@ -2,6 +2,7 @@ package com.omnicloud.api.controller;
 
 import com.omnicloud.api.model.FileMetadata;
 import com.omnicloud.api.service.FileService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +47,18 @@ public class FileController {
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteFile(@PathVariable UUID id) {
+        try {
+            fileService.deleteFile(id);
+            return ResponseEntity.noContent().build(); // 204 No Content döner (Standart)
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
         }
     }
 

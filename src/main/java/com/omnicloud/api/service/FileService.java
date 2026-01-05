@@ -130,6 +130,82 @@ public class FileService {
         // 6. Trim Padding (AES Padding might add bytes, Stream logic handles this usually)
         return decryptedData;
     }
+    public String repairFile(UUID fileId) throws Exception {
+        System.out.println("🔧 Starting Repair Process for File ID: " + fileId);
+
+        // 1. Dosyayı mevcut (sağlam) parçalardan indir ve RAM'de birleştir
+        // (Eğer yeterli parça yoksa downloadFile zaten hata fırlatır)
+        byte[] recoveredFile = downloadFile(fileId);
+
+        if (recoveredFile == null) {
+            throw new RuntimeException("File recovery failed. Not enough shards available.");
+        }
+        System.out.println("✅ File reconstructed in memory from surviving shards.");
+
+        // 2. Metadata'yı çek (Şifreleme anahtarları için)
+        FileMetadata metadata = repository.findById(fileId).orElseThrow();
+        SecretKey key = encryptionService.stringToKey(metadata.getEncryptionKey());
+        IvParameterSpec iv = new IvParameterSpec(Base64.getDecoder().decode(metadata.getIv()));
+
+        // 3. Dosyayı tekrar Şifrele ve Parçala (Tıpkı ilk upload gibi)
+        // Çünkü MinIO'ya şifreli parça yüklememiz lazım.
+        byte[] encryptedBytes = encryptionService.encrypt(recoveredFile, key, iv);
+        List<Shard> allShards = erasureService.encode(encryptedBytes);
+
+        // 4. Hangi parçaların eksik olduğunu bul ve sadece onları yükle
+        int repairedCount = 0;
+
+        for (Shard shard : allShards) {
+            // MinIO'da bu parça var mı kontrol et
+            byte[] existingData = storageService.downloadShard(
+                    MinioConfig.COMMON_BUCKET_NAME,
+                    fileId.toString() + "/" + shard.getIndex(),
+                    shard.getIndex()
+            );
+
+            // Eğer null döndüyse, o sunucu boş demektir (veya yeni açılmıştır)
+            if (existingData == null) {
+                System.out.println("⚠️ Missing Shard detected: Index " + shard.getIndex());
+
+                // Sadece bu parçayı içeren tek elemanlı bir liste yapıp gönderiyoruz
+                List<Shard> shardToRestore = new ArrayList<>();
+                shardToRestore.add(shard);
+
+                storageService.uploadShards(shardToRestore, fileId.toString());
+                repairedCount++;
+                System.out.println("♻️ Repaired/Uploaded Shard " + shard.getIndex());
+            }
+        }
+
+        if (repairedCount == 0) {
+            return "System Healthy: No shards were missing.";
+        } else {
+            return "SUCCESS: Restored " + repairedCount + " missing shards.";
+        }
+    }
+
+    @Transactional
+    public void deleteFile(UUID fileId) {
+        // 1. Metadata'yı bul
+        FileMetadata metadata = repository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("File not found with ID: " + fileId));
+
+        // 2. Tüm parçaları MinIO'dan sil (Fiziksel Silme)
+        for (ShardMetadata shard : metadata.getShards()) {
+            // Klasör yapımız: fileId/shardIndex (örn: 1f8f.../0)
+            String objectName = fileId.toString() + "/" + shard.getShardIndex();
+
+            storageService.deleteShard(
+                    shard.getMinioBucketName(),
+                    objectName,
+                    shard.getShardIndex()
+            );
+        }
+
+        // 3. Veritabanından kaydı sil (Metadata Silme)
+        repository.delete(metadata);
+        System.out.println("🗑️ File " + fileId + " and all its shards have been deleted.");
+    }
 
     public List<FileMetadata> listFiles() {
         return repository.findAll();

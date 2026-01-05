@@ -88,4 +88,38 @@ public class StorageService {
             return null; // Return null so the Erasure Service knows this piece is missing
         }
     }
+    public List<String> getSystemHealth() {
+        List<String> healthReport = new ArrayList<>();
+
+        minioClients.forEach((index, client) -> {
+            try {
+                // checking
+                boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(MinioConfig.COMMON_BUCKET_NAME).build());
+                if (exists) {
+                    healthReport.add("Cloud Node " + index + ": UP (Online)");
+                } else {
+                    healthReport.add("Cloud Node " + index + ": DOWN (Bucket Missing)");
+                }
+            } catch (Exception e) {
+                // connection error
+                healthReport.add("Cloud Node " + index + ": DOWN (Connection Refused)");
+            }
+        });
+        return healthReport;
+    }
+
+    public void deleteShard(String bucketName, String objectName, int clientIndex) {
+        try {
+            MinioClient client = minioClients.get(clientIndex);
+            client.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .build()
+            );
+            // System.out.println("Deleted shard from Node " + clientIndex);
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Could not delete shard from Node " + clientIndex + " (It might be already gone or node is down).");
+        }
+    }
 }
