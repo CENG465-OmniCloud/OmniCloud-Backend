@@ -2,13 +2,11 @@ package com.omnicloud.api.service;
 
 import com.omnicloud.api.config.MinioConfig;
 import com.omnicloud.api.model.Shard;
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
+import io.minio.*;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -74,5 +72,20 @@ public class StorageService {
                 System.err.println("Warning: Could not check bucket on Cloud Node " + index);
             }
         });
+    }
+    public byte[] downloadShard(String bucketName, String objectName, int clientIndex) {
+        try {
+            MinioClient client = minioClients.get(clientIndex);
+            try (InputStream stream = client.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(objectName)
+                            .build())) {
+                return stream.readAllBytes();
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ WARNING: Could not fetch shard from Node " + clientIndex + " (It might be down).");
+            return null; // Return null so the Erasure Service knows this piece is missing
+        }
     }
 }

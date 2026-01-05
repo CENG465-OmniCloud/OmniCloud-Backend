@@ -1,5 +1,6 @@
 package com.omnicloud.api.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -24,5 +25,6 @@ public class ShardMetadata {
     // Link back to the parent file
     @ManyToOne
     @JoinColumn(name = "file_id", nullable = false)
+    @JsonIgnore
     private FileMetadata fileMetadata;
 }
