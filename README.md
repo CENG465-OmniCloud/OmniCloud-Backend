@@ -4,7 +4,7 @@
 
 ## 🚀 Getting Started
 
-Follow these instructions to set up the **OmniCloud** simulation environment locally.
+Follow[gradle](gradle) these instructions to set up the **OmniCloud** simulation environment locally.
 
 ### 📋 Prerequisites
 * **Java 21**
@@ -96,3 +96,53 @@ Since `application.properties` relies on the environment variables defined in `.
 3. **Copy the content** of your `.env` file and **paste it** into the Environment variables field
     - *(Alternatively, if you use the "EnvFile" plugin, simply attach the `.env` file)*
 4. **Run** `OmniCloudApplication`
+
+---
+
+## 📖 Interactive API Documentation (Swagger UI)
+
+This project implements **OpenAPI (Swagger UI)** to visualize and test the API endpoints in real-time.
+
+### Accessing the Dashboard
+Once the application is running locally, open the following URL:
+
+> **http://localhost:8080/swagger-ui.html**
+
+For **JSON Docs**:
+
+> **http://localhost:8080/v3/api-docs** 
+
+*(Note: If you configured a different port in `application.properties`, replace `8080` with your port)*
+
+---
+
+## 📡 API Reference
+
+The OmniCloud API is a RESTful Web Service designed to manage multi-cloud storage orchestration. Below is the current status of the API endpoints.
+
+### ✅ Currently Implemented Endpoints
+These endpoints are fully operational in the current build.
+
+| Controller | Method | Endpoint | Description |
+| :--- | :--- | :--- | :--- |
+| **File** | `POST` | `/api/v1/files/upload` | Stream upload a file (Encryption + Splitting). |
+| **File** | `GET` | `/api/v1/files` | List all files in the virtual bucket. |
+| **File** | `GET` | `/api/v1/files/{id}/download` | Stream download (Reconstruction + Decryption). |
+| **File** | `DELETE` | `/api/v1/files/{id}` | Permanently delete a file and all remote shards. |
+| **Maintenance** | `POST` | `/api/v1/maintenance/repair/{id}` | Manually trigger a reconstruction job for a file. |
+| **Admin** | `GET` | `/api/v1/admin/health` | System-wide health check of all connected clouds. |
+
+### 🚧 Roadmap (Planned Endpoints)
+The following endpoints are defined in the project proposal and are currently under development.
+
+| Feature | Method | Endpoint | Description |
+| :--- | :--- | :--- | :--- |
+| **Auth** | `POST` | `/api/v1/auth/register` | Register a new tenant organization. |
+| **Auth** | `POST` | `/api/v1/auth/login` | Authenticate and obtain JWT Bearer token. |
+| **Providers** | `GET` | `/api/v1/providers` | List connected cloud providers (AWS, Azure, etc.). |
+| **Providers** | `POST` | `/api/v1/providers` | Add a new cloud provider configuration (Access Keys). |
+| **Providers** | `DELETE` | `/api/v1/providers/{id}` | Remove a provider from the pool. |
+| **Files** | `GET` | `/api/v1/files/{id}/metadata` | View shard distribution and health status. |
+| **Policies** | `PUT` | `/api/v1/policies/geo-fence` | Update allowed/blocked regions for data placement. |
+| **Analytics** | `GET` | `/api/v1/analytics/storage` | Get current storage usage and cost savings report. |
+| **Audit** | `GET` | `/api/v1/audit/logs` | Retrieve security access logs for files. |

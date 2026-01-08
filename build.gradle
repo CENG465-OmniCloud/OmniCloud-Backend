@@ -42,11 +42,12 @@ dependencies {
 	implementation 'io.minio:minio:8.6.0'
 	implementation 'com.github.Backblaze:JavaReedSolomon:master-SNAPSHOT'
 
-
+	implementation 'org.springframework.boot:spring-boot-starter-security'
 	// The most important one for testing
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	// Keep this for JUnit 5 engine
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
 
 }
 
