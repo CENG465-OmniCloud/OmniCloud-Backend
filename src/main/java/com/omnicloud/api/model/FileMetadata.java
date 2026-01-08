@@ -2,6 +2,8 @@ package com.omnicloud.api.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import net.minidev.json.annotate.JsonIgnore;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,9 +27,11 @@ public class FileMetadata {
     private long fileSize; // Original size in bytes
 
     @Column(nullable = false, length = 1000)
+    @JsonIgnore
     private String encryptionKey; // Base64 Encoded AES Key
 
     @Column(nullable = false)
+    @JsonIgnore
     private String iv; // Base64 Encoded Initialization Vector
 
     private LocalDateTime uploadDate;

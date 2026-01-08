@@ -1,7 +1,8 @@
 package com.omnicloud.api.service;
 
-import com.omnicloud.api.config.MinioConfig;
 import com.omnicloud.api.model.Shard;
+import com.omnicloud.api.model.StorageProvider;
+import com.omnicloud.api.repository.StorageProviderRepository;
 import io.minio.*;
 import org.springframework.stereotype.Service;
 
@@ -9,117 +10,145 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @Service
 public class StorageService {
 
-    private final Map<Integer, MinioClient> minioClients;
+    private final StorageProviderRepository providerRepository;
 
-    public StorageService(Map<Integer, MinioClient> minioClients) {
-        this.minioClients = minioClients;
-        // Initialize buckets on startup (Optional, but good for safety)
-        ensureBucketsExist();
+    public StorageService(StorageProviderRepository providerRepository) {
+        this.providerRepository = providerRepository;
     }
 
     /**
-     * Uploads 6 shards to 6 different providers in PARALLEL.
+     * Uploads shards to registered providers in PARALLEL.
+     * Uses Round-Robin to distribute shards if there are fewer providers than shards.
      */
     public void uploadShards(List<Shard> shards, String fileId) {
+        List<StorageProvider> providers = providerRepository.findAll();
+
+        if (providers.isEmpty()) {
+            throw new RuntimeException("No storage providers registered! Please add a Cloud Provider via /api/v1/providers");
+        }
+
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (Shard shard : shards) {
-            // Select the correct client for this shard index (0-5)
-            MinioClient client = minioClients.get(shard.getIndex());
+            // Logic: Map Shard Index -> Provider Index
+            // If you have 6 shards and 6 providers, it maps 1:1.
+            // If you have 6 shards and 3 providers, it distributes 2 shards per provider.
+            int providerIndex = shard.getIndex() % providers.size();
+            StorageProvider targetProvider = providers.get(providerIndex);
 
             // Launch async upload task
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
-                    String objectName = fileId + "/" + shard.getIndex(); // Folder structure: file-uuid/0
+                    MinioClient client = getClientForProvider(targetProvider);
+
+                    String objectName = fileId + "/" + shard.getIndex();
                     byte[] data = shard.getData();
+
+                    // Ensure bucket exists (Lazy check)
+                    // In production, you might skip this for speed, but it's safe for now.
+                    boolean found = client.bucketExists(BucketExistsArgs.builder().bucket(targetProvider.getBucketName()).build());
+                    if (!found) {
+                        client.makeBucket(MakeBucketArgs.builder().bucket(targetProvider.getBucketName()).build());
+                    }
 
                     client.putObject(
                             PutObjectArgs.builder()
-                                    .bucket(MinioConfig.COMMON_BUCKET_NAME)
+                                    .bucket(targetProvider.getBucketName())
                                     .object(objectName)
                                     .stream(new ByteArrayInputStream(data), data.length, -1)
                                     .build()
                     );
-                    // System.out.println("Shard " + shard.getIndex() + " uploaded.");
                 } catch (Exception e) {
-                    // For now, just print error. In Day 8, we handle this as a "Dead Node".
-                    System.err.println("❌ Failed to upload shard " + shard.getIndex() + ": " + e.getMessage());
+                    System.err.println("❌ Failed to upload shard " + shard.getIndex() + " to " + targetProvider.getName() + ": " + e.getMessage());
                     throw new RuntimeException(e);
                 }
             });
             futures.add(future);
         }
 
-        // Wait for ALL uploads to finish before returning
+        // Wait for ALL uploads to finish
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
-    private void ensureBucketsExist() {
-        minioClients.forEach((index, client) -> {
-            try {
-                String bucket = MinioConfig.COMMON_BUCKET_NAME;
-                if (!client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
-                    client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
-                    System.out.println("Created bucket on Cloud Node " + index);
-                }
-            } catch (Exception e) {
-                System.err.println("Warning: Could not check bucket on Cloud Node " + index);
-            }
-        });
-    }
-    public byte[] downloadShard(String bucketName, String objectName, int clientIndex) {
+    public byte[] downloadShard(String bucketName, String objectName, int shardIndex) {
+        List<StorageProvider> providers = providerRepository.findAll();
+        if (providers.isEmpty()) return null;
+
+        // Re-calculate which provider *should* have this shard
+        int providerIndex = shardIndex % providers.size();
+        StorageProvider targetProvider = providers.get(providerIndex);
+
         try {
-            MinioClient client = minioClients.get(clientIndex);
+            MinioClient client = getClientForProvider(targetProvider);
             try (InputStream stream = client.getObject(
                     GetObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(targetProvider.getBucketName()) // Use provider's specific bucket name
                             .object(objectName)
                             .build())) {
                 return stream.readAllBytes();
             }
         } catch (Exception e) {
-            System.err.println("⚠️ WARNING: Could not fetch shard from Node " + clientIndex + " (It might be down).");
-            return null; // Return null so the Erasure Service knows this piece is missing
+            System.err.println("⚠️ WARNING: Could not fetch shard " + shardIndex + " from " + targetProvider.getName());
+            return null; // Return null so Erasure Service knows to reconstruct
         }
     }
+
+    public void deleteShard(String bucketName, String objectName, int shardIndex) {
+        List<StorageProvider> providers = providerRepository.findAll();
+        if (providers.isEmpty()) return;
+
+        int providerIndex = shardIndex % providers.size();
+        StorageProvider targetProvider = providers.get(providerIndex);
+
+        try {
+            MinioClient client = getClientForProvider(targetProvider);
+            client.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(targetProvider.getBucketName())
+                            .object(objectName)
+                            .build()
+            );
+        } catch (Exception e) {
+            System.err.println("⚠️ Warning: Could not delete shard from " + targetProvider.getName());
+        }
+    }
+
     public List<String> getSystemHealth() {
         List<String> healthReport = new ArrayList<>();
+        List<StorageProvider> providers = providerRepository.findAll();
 
-        minioClients.forEach((index, client) -> {
+        if (providers.isEmpty()) {
+            healthReport.add("CRITICAL: No Providers Registered.");
+            return healthReport;
+        }
+
+        providers.forEach(provider -> {
             try {
-                // checking
-                boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(MinioConfig.COMMON_BUCKET_NAME).build());
+                MinioClient client = getClientForProvider(provider);
+                boolean exists = client.bucketExists(BucketExistsArgs.builder().bucket(provider.getBucketName()).build());
                 if (exists) {
-                    healthReport.add("Cloud Node " + index + ": UP (Online)");
+                    healthReport.add("✅ " + provider.getName() + " [" + provider.getType() + "]: ONLINE");
                 } else {
-                    healthReport.add("Cloud Node " + index + ": DOWN (Bucket Missing)");
+                    healthReport.add("❌ " + provider.getName() + ": BUCKET MISSING");
                 }
             } catch (Exception e) {
-                // connection error
-                healthReport.add("Cloud Node " + index + ": DOWN (Connection Refused)");
+                healthReport.add("🔥 " + provider.getName() + ": CONNECTION FAILED (" + e.getMessage() + ")");
             }
         });
         return healthReport;
     }
 
-    public void deleteShard(String bucketName, String objectName, int clientIndex) {
-        try {
-            MinioClient client = minioClients.get(clientIndex);
-            client.removeObject(
-                    RemoveObjectArgs.builder()
-                            .bucket(bucketName)
-                            .object(objectName)
-                            .build()
-            );
-            // System.out.println("Deleted shard from Node " + clientIndex);
-        } catch (Exception e) {
-            System.err.println("⚠️ Warning: Could not delete shard from Node " + clientIndex + " (It might be already gone or node is down).");
-        }
+    // --- Helper Method ---
+    private MinioClient getClientForProvider(StorageProvider provider) {
+        return MinioClient.builder()
+                .endpoint(provider.getEndpointUrl())
+                .credentials(provider.getAccessKey(), provider.getSecretKey())
+                .region(provider.getRegion()) // Important for AWS/Azure
+                .build();
     }
 }

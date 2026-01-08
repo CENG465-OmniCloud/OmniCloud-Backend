@@ -129,6 +129,9 @@ These endpoints are fully operational in the current build.
 | **File** | `GET` | `/api/v1/files` | List all files in the virtual bucket. |
 | **File** | `GET` | `/api/v1/files/{id}/download` | Stream download (Reconstruction + Decryption). |
 | **File** | `DELETE` | `/api/v1/files/{id}` | Permanently delete a file and all remote shards. |
+| **Providers** | `GET` | `/api/v1/providers` | List connected cloud providers (AWS, Azure, etc.). |
+| **Providers** | `POST` | `/api/v1/providers` | Add a new cloud provider configuration (Access Keys). |
+| **Providers** | `DELETE` | `/api/v1/providers/{id}` | Remove a provider from the pool. |
 | **Maintenance** | `POST` | `/api/v1/maintenance/repair/{id}` | Manually trigger a reconstruction job for a file. |
 | **Admin** | `GET` | `/api/v1/admin/health` | System-wide health check of all connected clouds. |
 
@@ -139,9 +142,6 @@ The following endpoints are defined in the project proposal and are currently un
 | :--- | :--- | :--- | :--- |
 | **Auth** | `POST` | `/api/v1/auth/register` | Register a new tenant organization. |
 | **Auth** | `POST` | `/api/v1/auth/login` | Authenticate and obtain JWT Bearer token. |
-| **Providers** | `GET` | `/api/v1/providers` | List connected cloud providers (AWS, Azure, etc.). |
-| **Providers** | `POST` | `/api/v1/providers` | Add a new cloud provider configuration (Access Keys). |
-| **Providers** | `DELETE` | `/api/v1/providers/{id}` | Remove a provider from the pool. |
 | **Files** | `GET` | `/api/v1/files/{id}/metadata` | View shard distribution and health status. |
 | **Policies** | `PUT` | `/api/v1/policies/geo-fence` | Update allowed/blocked regions for data placement. |
 | **Analytics** | `GET` | `/api/v1/analytics/storage` | Get current storage usage and cost savings report. |

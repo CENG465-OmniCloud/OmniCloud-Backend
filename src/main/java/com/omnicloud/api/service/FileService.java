@@ -1,11 +1,9 @@
 package com.omnicloud.api.service;
 
 import com.omnicloud.api.config.MinioConfig;
-import com.omnicloud.api.model.FileMetadata;
-import com.omnicloud.api.model.Shard;
-import com.omnicloud.api.model.ShardMetadata;
-import com.omnicloud.api.model.ShardStatus;
+import com.omnicloud.api.model.*;
 import com.omnicloud.api.repository.FileMetadataRepository;
+import com.omnicloud.api.repository.StorageProviderRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,19 +26,31 @@ public class FileService {
     private final EncryptionService encryptionService;
     private final ErasureService erasureService;
     private final StorageService storageService;
+    private final StorageProviderRepository providerRepository;
 
     // Sabit 6 Node, 4 Data, 2 Parity
     private static final int DATA_SHARDS = 4;
 
-    public FileService(FileMetadataRepository repository, EncryptionService encryptionService, ErasureService erasureService, StorageService storageService) {
+    public FileService(FileMetadataRepository repository,
+                       EncryptionService encryptionService,
+                       ErasureService erasureService,
+                       StorageService storageService,
+                       StorageProviderRepository providerRepository) {
         this.repository = repository;
         this.encryptionService = encryptionService;
         this.erasureService = erasureService;
         this.storageService = storageService;
+        this.providerRepository = providerRepository;
     }
 
     @Transactional
     public FileMetadata uploadFile(MultipartFile file) throws Exception {
+        // 0. Fetch Providers (We need to know how many exist to calculate locations)
+        List<StorageProvider> providers = providerRepository.findAll();
+        if (providers.isEmpty()) {
+            throw new RuntimeException("No Storage Providers found! Cannot upload file.");
+        }
+
         // 1. Generate Security Keys
         SecretKey key = encryptionService.generateKey();
         IvParameterSpec iv = encryptionService.generateIv();
@@ -65,14 +75,20 @@ public class FileService {
         // 3. Split (Erasure Coding)
         List<Shard> shards = erasureService.encode(encryptedBytes);
 
-        // 4. Upload to MinIO
+        // 4. Upload to (StorageService handles the distribution)
         storageService.uploadShards(shards, fileId);
 
         // 5. Shard Metadata'larını ekle
         for (Shard s : shards) {
+            // Replicate Round-Robin Logic to find which bucket this shard went to
+            // Logic: ShardIndex % ProviderCount
+            int providerIndex = s.getIndex() % providers.size();
+            StorageProvider usedProvider = providers.get(providerIndex);
+
+
             ShardMetadata sm = ShardMetadata.builder()
                     .shardIndex(s.getIndex())
-                    .minioBucketName(MinioConfig.COMMON_BUCKET_NAME)
+                    .minioBucketName(usedProvider.getBucketName()) //dynamic bucket name
                     .status(ShardStatus.ALIVE)
                     .build();
             metadata.addShard(sm);
@@ -152,13 +168,19 @@ public class FileService {
         byte[] encryptedBytes = encryptionService.encrypt(recoveredFile, key, iv);
         List<Shard> allShards = erasureService.encode(encryptedBytes);
 
+        //Fetch providers for cheking buckets
+        List<StorageProvider> providers = providerRepository.findAll();
+
         // 4. Hangi parçaların eksik olduğunu bul ve sadece onları yükle
         int repairedCount = 0;
 
         for (Shard shard : allShards) {
+            // Calculate which provider owns this shard
+            int providerIndex = shard.getIndex() % providers.size();
+            String correctBucket = providers.get(providerIndex).getBucketName();
             // MinIO'da bu parça var mı kontrol et
             byte[] existingData = storageService.downloadShard(
-                    MinioConfig.COMMON_BUCKET_NAME,
+                    correctBucket,
                     fileId.toString() + "/" + shard.getIndex(),
                     shard.getIndex()
             );
