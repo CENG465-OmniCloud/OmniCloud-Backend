@@ -4,6 +4,7 @@ import com.omnicloud.api.config.MinioConfig;
 import com.omnicloud.api.model.*;
 import com.omnicloud.api.repository.FileMetadataRepository;
 import com.omnicloud.api.repository.StorageProviderRepository;
+import com.omnicloud.api.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,6 +29,7 @@ public class FileService {
     private final StorageService storageService;
     private final StorageProviderRepository providerRepository;
     private final AuditService auditService;
+    private final UserRepository userRepository;
 
     // Sabit 6 Node, 4 Data, 2 Parity
     private static final int DATA_SHARDS = 4;
@@ -37,17 +39,21 @@ public class FileService {
                        ErasureService erasureService,
                        StorageService storageService,
                        StorageProviderRepository providerRepository,
-                       AuditService auditService) {
+                       AuditService auditService,
+                       UserRepository userRepository) {
         this.repository = repository;
         this.encryptionService = encryptionService;
         this.erasureService = erasureService;
         this.storageService = storageService;
         this.providerRepository = providerRepository;
         this.auditService = auditService;
+        this.userRepository = userRepository;
     }
 
     @Transactional
     public FileMetadata uploadFile(MultipartFile file) throws Exception {
+        // 1. Get Current User (Fixes DataIntegrityViolationException)
+        User currentUser = getCurrentUser(); // Ensure you have this helper method
         // 0. Fetch Providers
         List<StorageProvider> providers = providerRepository.findAll();
         if (providers.isEmpty()) {
@@ -312,5 +318,12 @@ public class FileService {
 
     public List<FileMetadata> listFiles() {
         return repository.findAll();
+    }
+
+    private User getCurrentUser() {
+        String username = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication().getName();
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("User not found in context"));
     }
 }

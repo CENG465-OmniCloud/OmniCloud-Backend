@@ -16,6 +16,11 @@ import java.util.UUID;
 @Builder
 public class FileMetadata {
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore // Don't expose user details in the JSON response
+    private User owner;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;

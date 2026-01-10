@@ -16,7 +16,7 @@ public class PolicyController {
 
     static {
         // Varsayılan ayarlar
-        currentPolicy.put("blocked_regions", new String[]{"cn-north-1", "ru-west-1"});
+        currentPolicy.put("blocked_regions", new String[]{});
         currentPolicy.put("replication_factor", "1.5");
         currentPolicy.put("encryption_standard", "AES-256");
     }
