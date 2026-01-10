@@ -1,7 +1,9 @@
 package com.omnicloud.api.controller;
 
 import com.omnicloud.api.model.FileMetadata;
+import com.omnicloud.api.repository.FileMetadataRepository;
 import com.omnicloud.api.service.FileService;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,9 +19,11 @@ import java.util.UUID;
 public class FileController {
 
     private final FileService fileService;
+    private final FileMetadataRepository repository;
 
-    public FileController(FileService fileService) {
+    public FileController(FileService fileService, FileMetadataRepository repository) {
         this.fileService = fileService;
+        this.repository = repository;
     }
 
     @PostMapping("/upload")
@@ -60,6 +64,15 @@ public class FileController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @Operation(summary = "Get detailed file metadata", description = "Returns shard distribution, encryption details, and health status.")
+    @GetMapping("/{id}/metadata")
+    public ResponseEntity<FileMetadata> getFileMetadata(@PathVariable UUID id) {
+        // Mevcut repository'den veriyi çekip direkt dönüyoruz
+        return repository.findById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping
