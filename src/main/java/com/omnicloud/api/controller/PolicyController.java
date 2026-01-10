@@ -1,36 +1,29 @@
 package com.omnicloud.api.controller;
 
-import io.swagger.v3.oas.annotations.Operation;
+import com.omnicloud.api.model.UserPolicy;
+import com.omnicloud.api.service.PolicyService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/policies")
+@RequiredArgsConstructor
 public class PolicyController {
 
-    // Gerçek bir DB yerine şimdilik hafızada tutuyoruz (Demo için yeterli)
-    public static Map<String, Object> currentPolicy = new HashMap<>();
-
-    static {
-        // Varsayılan ayarlar
-        currentPolicy.put("blocked_regions", new String[]{});
-        currentPolicy.put("replication_factor", "1.5");
-        currentPolicy.put("encryption_standard", "AES-256");
-    }
-
-    @Operation(summary = "Update Geo-Fencing Policies", description = "Set allowed or blocked regions for data placement.")
-    @PutMapping("/geo-fence")
-    public ResponseEntity<Map<String, Object>> updatePolicy(@RequestBody Map<String, Object> newPolicy) {
-        currentPolicy.putAll(newPolicy);
-        currentPolicy.put("status", "UPDATED");
-        return ResponseEntity.ok(currentPolicy);
-    }
+    private final PolicyService policyService;
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> getPolicy() {
-        return ResponseEntity.ok(currentPolicy);
+    public ResponseEntity<UserPolicy> getMyPolicy() {
+        return ResponseEntity.ok(policyService.getMyPolicy());
+    }
+
+    @PutMapping("/geo-fence")
+    public ResponseEntity<UserPolicy> updateGeoFence(@RequestBody Map<String, List<String>> request) {
+        List<String> blockedRegions = request.get("blockedRegions");
+        return ResponseEntity.ok(policyService.updateBlockedRegions(blockedRegions));
     }
 }

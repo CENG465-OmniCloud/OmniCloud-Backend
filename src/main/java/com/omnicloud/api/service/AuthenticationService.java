@@ -5,12 +5,16 @@ import com.omnicloud.api.dto.AuthResponse;
 import com.omnicloud.api.dto.RegisterRequest;
 import com.omnicloud.api.model.Role;
 import com.omnicloud.api.model.User;
+import com.omnicloud.api.model.UserPolicy;
+import com.omnicloud.api.repository.UserPolicyRepository;
 import com.omnicloud.api.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +25,8 @@ public class AuthenticationService {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
 
+
+    private final UserPolicyRepository policyRepository;
     public AuthResponse register(RegisterRequest request) {
         var user = User.builder()
                 .username(request.getUsername())
@@ -28,6 +34,14 @@ public class AuthenticationService {
                 .role(request.getRole() != null ? request.getRole() : Role.USER)
                 .build();
         repository.save(user);
+
+        //Create Default Policy for this User
+        UserPolicy defaultPolicy = UserPolicy.builder()
+                .user(user)
+                .blockedRegions(new ArrayList<>()) // No blocks by default
+                .build();
+        policyRepository.save(defaultPolicy);
+
         var jwtToken = jwtService.generateToken(user);
         return AuthResponse.builder().token(jwtToken).build();
     }
