@@ -99,6 +99,34 @@ services:
     volumes:
       - cloud6_data:/data
 
+  # Cloud 7: IBM Cloud Simulation
+  cloud-ibm:
+    image: minio/minio
+    container_name: cloud-7-ibm
+    command: server /data --console-address ":9097"
+    environment:
+      MINIO_ROOT_USER: ${IBM_USER}
+      MINIO_ROOT_PASSWORD: ${IBM_PASSWORD}
+    ports:
+      - "9007:9000" # API Port
+      - "9097:9097" # Console Port
+    volumes:
+      - cloud7_data:/data
+
+  # Cloud 8: Alibaba Cloud Simulation
+  cloud-alibaba:
+    image: minio/minio
+    container_name: cloud-8-alibaba
+    command: server /data --console-address ":9098"
+    environment:
+      MINIO_ROOT_USER: ${ALIBABA_USER}
+      MINIO_ROOT_PASSWORD: ${ALIBABA_PASSWORD}
+    ports:
+      - "9008:9000" # API Port
+      - "9098:9098" # Console Port
+    volumes:
+      - cloud8_data:/data
+
 volumes:
   db_data:
   cloud1_data:
@@ -107,3 +135,5 @@ volumes:
   cloud4_data:
   cloud5_data:
   cloud6_data:
+  cloud7_data:
+  cloud8_data:
