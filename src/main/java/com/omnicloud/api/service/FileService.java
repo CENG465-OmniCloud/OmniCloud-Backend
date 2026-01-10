@@ -27,6 +27,7 @@ public class FileService {
     private final ErasureService erasureService;
     private final StorageService storageService;
     private final StorageProviderRepository providerRepository;
+    private final AuditService auditService;
 
     // Sabit 6 Node, 4 Data, 2 Parity
     private static final int DATA_SHARDS = 4;
@@ -35,27 +36,32 @@ public class FileService {
                        EncryptionService encryptionService,
                        ErasureService erasureService,
                        StorageService storageService,
-                       StorageProviderRepository providerRepository) {
+                       StorageProviderRepository providerRepository,
+                       AuditService auditService) {
         this.repository = repository;
         this.encryptionService = encryptionService;
         this.erasureService = erasureService;
         this.storageService = storageService;
         this.providerRepository = providerRepository;
+        this.auditService = auditService;
     }
 
     @Transactional
     public FileMetadata uploadFile(MultipartFile file) throws Exception {
-        // 0. Fetch Providers (We need to know how many exist to calculate locations)
+        // 0. Fetch Providers
         List<StorageProvider> providers = providerRepository.findAll();
         if (providers.isEmpty()) {
             throw new RuntimeException("No Storage Providers found! Cannot upload file.");
         }
 
+        // --- YENİ: Yasaklı Bölgeleri Çek ---
+        List<String> blockedRegions = (List<String>) com.omnicloud.api.controller.PolicyController.currentPolicy.getOrDefault("blocked_regions", new ArrayList<>());
+
         // 1. Generate Security Keys
         SecretKey key = encryptionService.generateKey();
         IvParameterSpec iv = encryptionService.generateIv();
 
-        // ADIM A: Önce Metadata nesnesini oluştur
+        // ADIM A: Metadata nesnesini oluştur
         FileMetadata metadata = FileMetadata.builder()
                 .filename(file.getOriginalFilename())
                 .fileSize(file.getSize())
@@ -64,7 +70,7 @@ public class FileService {
                 .iv(Base64.getEncoder().encodeToString(iv.getIV()))
                 .build();
 
-        // ADIM B: İlk Kayıt -> Bu işlem nesneye bir UUID atar.
+        // ADIM B: İlk Kayıt
         metadata = repository.save(metadata);
         String fileId = metadata.getId().toString();
 
@@ -72,29 +78,50 @@ public class FileService {
         byte[] originalBytes = file.getBytes();
         byte[] encryptedBytes = encryptionService.encrypt(originalBytes, key, iv);
 
-        // 3. Split (Erasure Coding)
+        // 3. Split
         List<Shard> shards = erasureService.encode(encryptedBytes);
 
-        // 4. Upload to (StorageService handles the distribution)
+        // 4. Upload (StorageService fiziksel yüklemeyi ve yönlendirmeyi yapar)
         storageService.uploadShards(shards, fileId);
 
         // 5. Shard Metadata'larını ekle
         for (Shard s : shards) {
-            // Replicate Round-Robin Logic to find which bucket this shard went to
-            // Logic: ShardIndex % ProviderCount
+            // Hangi sağlayıcıya gitmesi gerekiyordu?
             int providerIndex = s.getIndex() % providers.size();
-            StorageProvider usedProvider = providers.get(providerIndex);
+            StorageProvider targetProvider = providers.get(providerIndex);
 
+            // --- YENİ: METADATA DÜZELTME (JSON Çıktısı İçin) ---
+            // Eğer hedef yasaklıysa, StorageService zaten onu güvenli yere attı.
+            // Biz de veritabanına "Bu parça aslında şuraya gitti" diye doğrusunu yazmalıyız.
+            if (blockedRegions.contains(targetProvider.getRegion())) {
+
+                // LOG: Yasaklı bölge uyarısı
+                auditService.log("GEO_FENCE_REDIRECT", "system",
+                        "Shard " + s.getIndex() + " redirected from blocked region: " + targetProvider.getRegion(),
+                        "WARNING");
+
+                // Güvenli sağlayıcıyı bul (StorageService ile aynı mantık)
+                targetProvider = providers.stream()
+                        .filter(p -> !blockedRegions.contains(p.getRegion()))
+                        .findFirst()
+                        .orElse(targetProvider);
+            }
+            // ----------------------------------------------------
 
             ShardMetadata sm = ShardMetadata.builder()
                     .shardIndex(s.getIndex())
-                    .minioBucketName(usedProvider.getBucketName()) //dynamic bucket name
+                    .minioBucketName(targetProvider.getBucketName()) // Artık doğru bucket ismini yazıyor
                     .status(ShardStatus.ALIVE)
                     .build();
             metadata.addShard(sm);
         }
 
-        // ADIM C: İkinci Kayıt -> Shard bilgileriyle beraber güncelliyoruz.
+        // --- YENİ: BAŞARILI YÜKLEME LOGU ---
+        auditService.log("FILE_UPLOAD", "user_admin",
+                "File '" + file.getOriginalFilename() + "' uploaded successfully.",
+                "SUCCESS");
+
+        // ADIM C: İkinci Kayıt
         return repository.save(metadata);
     }
 
@@ -147,76 +174,124 @@ public class FileService {
         return decryptedData;
     }
     public String repairFile(UUID fileId) throws Exception {
-        System.out.println("🔧 Starting Repair Process for File ID: " + fileId);
+        System.out.println("🔧 Starting Smart Repair Process for File ID: " + fileId);
+        auditService.log("MAINTENANCE_START", "system", "Repair process started for file ID: " + fileId, "INFO");
 
-        // 1. Dosyayı mevcut (sağlam) parçalardan indir ve RAM'de birleştir
-        // (Eğer yeterli parça yoksa downloadFile zaten hata fırlatır)
+        // 1. Dosyayı kurtar (Reconstruct)
         byte[] recoveredFile = downloadFile(fileId);
-
         if (recoveredFile == null) {
             throw new RuntimeException("File recovery failed. Not enough shards available.");
         }
-        System.out.println("✅ File reconstructed in memory from surviving shards.");
 
-        // 2. Metadata'yı çek (Şifreleme anahtarları için)
+        // 2. Metadata ve Key'leri al
         FileMetadata metadata = repository.findById(fileId).orElseThrow();
         SecretKey key = encryptionService.stringToKey(metadata.getEncryptionKey());
         IvParameterSpec iv = new IvParameterSpec(Base64.getDecoder().decode(metadata.getIv()));
 
-        // 3. Dosyayı tekrar Şifrele ve Parçala (Tıpkı ilk upload gibi)
-        // Çünkü MinIO'ya şifreli parça yüklememiz lazım.
+        // 3. Dosyayı tekrar şifrele ve parçala
         byte[] encryptedBytes = encryptionService.encrypt(recoveredFile, key, iv);
         List<Shard> allShards = erasureService.encode(encryptedBytes);
 
-        //Fetch providers for cheking buckets
-        List<StorageProvider> providers = providerRepository.findAll();
+        // 4. Tüm aktif sağlayıcıları çek (Yeni eklediğin dahil!)
+        List<StorageProvider> allProviders = providerRepository.findAll();
 
-        // 4. Hangi parçaların eksik olduğunu bul ve sadece onları yükle
         int repairedCount = 0;
+        boolean metadataUpdated = false; // DB güncellemesi gerekecek mi?
 
+        // 5. Her parça için kontrol et
         for (Shard shard : allShards) {
-            // Calculate which provider owns this shard
-            int providerIndex = shard.getIndex() % providers.size();
-            String correctBucket = providers.get(providerIndex).getBucketName();
-            // MinIO'da bu parça var mı kontrol et
+            // DB'den bu parçanın şu an nerede olması gerektiğini öğren
+            ShardMetadata shardMeta = metadata.getShards().get(shard.getIndex());
+            String currentBucket = shardMeta.getMinioBucketName();
+
+            // Parça yerinde duruyor mu?
             byte[] existingData = storageService.downloadShard(
-                    correctBucket,
+                    currentBucket,
                     fileId.toString() + "/" + shard.getIndex(),
                     shard.getIndex()
             );
 
-            // Eğer null döndüyse, o sunucu boş demektir (veya yeni açılmıştır)
+            // EĞER PARÇA EKSİKSE (veya sunucu çökmüşse null döner)
             if (existingData == null) {
                 System.out.println("⚠️ Missing Shard detected: Index " + shard.getIndex());
 
-                // Sadece bu parçayı içeren tek elemanlı bir liste yapıp gönderiyoruz
-                List<Shard> shardToRestore = new ArrayList<>();
-                shardToRestore.add(shard);
+                // Hedef sunucuyu bul (İsminden bucket'ı buluyoruz)
+                StorageProvider targetProvider = allProviders.stream()
+                        .filter(p -> p.getBucketName().equals(currentBucket))
+                        .findFirst()
+                        .orElse(null);
 
-                storageService.uploadShards(shardToRestore, fileId.toString());
-                repairedCount++;
-                System.out.println("♻️ Repaired/Uploaded Shard " + shard.getIndex());
+                boolean uploadSuccess = false;
+
+                // SENARYO A: Eski sunucu hala listede var, bir deneyelim (Belki sadece dosya silinmiştir, sunucu sağlamdır)
+                if (targetProvider != null) {
+                    try {
+                        List<Shard> singleShard = new ArrayList<>();
+                        singleShard.add(shard);
+                        storageService.uploadShards(singleShard, fileId.toString()); // Sadece bu metot bucket kontrolü yapıyor
+                        uploadSuccess = true;
+                        System.out.println("✅ Restored to ORIGINAL provider: " + targetProvider.getName());
+                    } catch (Exception e) {
+                        System.out.println("❌ Original provider is DEAD. Looking for a new home...");
+                    }
+                }
+
+                // SENARYO B: Eski sunucu ölmüş veya upload başarısız olmuş. YENİ SAĞLAYICI ARA!
+                if (!uploadSuccess) {
+                    // Bu dosyanın parçalarının ZATEN yüklü olduğu bucket'ları listele (Çakışma olmasın)
+                    List<String> usedBuckets = metadata.getShards().stream()
+                            .map(ShardMetadata::getMinioBucketName)
+                            .toList();
+
+                    // Hiç kullanılmayan, boşta bekleyen bir sağlayıcı bul (Yedek Oyuncu)
+                    StorageProvider spareProvider = allProviders.stream()
+                            .filter(p -> !usedBuckets.contains(p.getBucketName())) // Bu dosyadan hiç parça almamış olsun
+                            .findFirst()
+                            .orElseThrow(() -> new RuntimeException("CRITICAL: No spare providers available to migrate shard!"));
+
+                    // Yeni sağlayıcıya yükle
+                    // Manuel yükleme yapıyoruz çünkü uploadShards metodu metadata güncellemez
+                    storageService.uploadShardsToSpecificProvider(shard, fileId.toString(), spareProvider);
+
+                    // --- KRİTİK: DB'DEKİ ADRESİ GÜNCELLE ---
+                    shardMeta.setMinioBucketName(spareProvider.getBucketName()); // Artık yeni adresi bu!
+                    metadataUpdated = true;
+
+                    auditService.log("FAILOVER_REPAIR", "system",
+                            "Shard " + shard.getIndex() + " migrated to NEW provider: " + spareProvider.getName(),
+                            "WARNING");
+
+                    System.out.println("♻️ MIGRATED Shard " + shard.getIndex() + " to " + spareProvider.getName());
+                    repairedCount++;
+                } else {
+                    repairedCount++;
+                }
             }
         }
 
-        if (repairedCount == 0) {
-            return "System Healthy: No shards were missing.";
+        // Eğer adres değişikliği yaptıysak DB'ye kaydet
+        if (metadataUpdated) {
+            repository.save(metadata);
+        }
+
+        if (repairedCount > 0) {
+            return "SUCCESS: Restored & Rebalanced " + repairedCount + " shards.";
         } else {
-            return "SUCCESS: Restored " + repairedCount + " missing shards.";
+            return "System Healthy: No shards were missing.";
         }
     }
 
     @Transactional
     public void deleteFile(UUID fileId) {
-        // 1. Metadata'yı bul
         FileMetadata metadata = repository.findById(fileId)
                 .orElseThrow(() -> new RuntimeException("File not found with ID: " + fileId));
 
-        // 2. Tüm parçaları MinIO'dan sil (Fiziksel Silme)
-        for (ShardMetadata shard : metadata.getShards()) {
-            // Klasör yapımız: fileId/shardIndex (örn: 1f8f.../0)
-            String objectName = fileId.toString() + "/" + shard.getShardIndex();
+        // İsmi sakla (Silinmeden önce)
+        String filename = metadata.getFilename();
 
+        // 2. Fiziksel Silme
+        for (ShardMetadata shard : metadata.getShards()) {
+            String objectName = fileId.toString() + "/" + shard.getShardIndex();
             storageService.deleteShard(
                     shard.getMinioBucketName(),
                     objectName,
@@ -224,9 +299,15 @@ public class FileService {
             );
         }
 
-        // 3. Veritabanından kaydı sil (Metadata Silme)
+        // 3. Veritabanından Silme
         repository.delete(metadata);
-        System.out.println("🗑️ File " + fileId + " and all its shards have been deleted.");
+
+        // --- YENİ: SİLME LOGU ---
+        auditService.log("FILE_DELETE", "admin_user",
+                "File '" + filename + "' was permanently deleted.",
+                "WARNING");
+
+        System.out.println("🗑️ File " + fileId + " deleted.");
     }
 
     public List<FileMetadata> listFiles() {

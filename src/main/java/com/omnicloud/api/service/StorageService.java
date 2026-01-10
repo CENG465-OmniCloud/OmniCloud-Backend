@@ -5,6 +5,7 @@ import com.omnicloud.api.model.StorageProvider;
 import com.omnicloud.api.repository.StorageProviderRepository;
 import io.minio.*;
 import org.springframework.stereotype.Service;
+import com.omnicloud.api.controller.PolicyController;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -21,10 +22,6 @@ public class StorageService {
         this.providerRepository = providerRepository;
     }
 
-    /**
-     * Uploads shards to registered providers in PARALLEL.
-     * Uses Round-Robin to distribute shards if there are fewer providers than shards.
-     */
     public void uploadShards(List<Shard> shards, String fileId) {
         List<StorageProvider> providers = providerRepository.findAll();
 
@@ -32,46 +29,58 @@ public class StorageService {
             throw new RuntimeException("No storage providers registered! Please add a Cloud Provider via /api/v1/providers");
         }
 
+        // 1. Yasaklı Bölgeleri Çekiyoruz
+        List<String> blockedRegions = (List<String>) PolicyController.currentPolicy.getOrDefault("blocked_regions", new ArrayList<>());
+        System.out.println("DEBUG: Blocked Regions: " + blockedRegions); // Konsolda bunu görmelisin
+
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (Shard shard : shards) {
-            // Logic: Map Shard Index -> Provider Index
-            // If you have 6 shards and 6 providers, it maps 1:1.
-            // If you have 6 shards and 3 providers, it distributes 2 shards per provider.
             int providerIndex = shard.getIndex() % providers.size();
-            StorageProvider targetProvider = providers.get(providerIndex);
+            StorageProvider initialProvider = providers.get(providerIndex);
 
-            // Launch async upload task
+            StorageProvider finalProvider;
+
+            // 2. KONTROL BURADA YAPILIYOR
+            if (blockedRegions.contains(initialProvider.getRegion())) {
+                System.out.println("🛡️ POLICY ALERT: Region '" + initialProvider.getRegion() + "' is BLOCKED!");
+
+                // Yasaklı olmayan ilk sunucuyu bul
+                finalProvider = providers.stream()
+                        .filter(p -> !blockedRegions.contains(p.getRegion()))
+                        .findFirst()
+                        .orElse(initialProvider);
+
+                System.out.println("↪️ Redirecting Shard " + shard.getIndex() + " to: " + finalProvider.getName());
+            } else {
+                finalProvider = initialProvider;
+            }
+
+            // Yükleme işlemi (finalProvider ile)
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
-                    MinioClient client = getClientForProvider(targetProvider);
-
+                    MinioClient client = getClientForProvider(finalProvider);
                     String objectName = fileId + "/" + shard.getIndex();
                     byte[] data = shard.getData();
 
-                    // Ensure bucket exists (Lazy check)
-                    // In production, you might skip this for speed, but it's safe for now.
-                    boolean found = client.bucketExists(BucketExistsArgs.builder().bucket(targetProvider.getBucketName()).build());
+                    boolean found = client.bucketExists(BucketExistsArgs.builder().bucket(finalProvider.getBucketName()).build());
                     if (!found) {
-                        client.makeBucket(MakeBucketArgs.builder().bucket(targetProvider.getBucketName()).build());
+                        client.makeBucket(MakeBucketArgs.builder().bucket(finalProvider.getBucketName()).build());
                     }
 
                     client.putObject(
                             PutObjectArgs.builder()
-                                    .bucket(targetProvider.getBucketName())
+                                    .bucket(finalProvider.getBucketName())
                                     .object(objectName)
                                     .stream(new ByteArrayInputStream(data), data.length, -1)
                                     .build()
                     );
                 } catch (Exception e) {
-                    System.err.println("❌ Failed to upload shard " + shard.getIndex() + " to " + targetProvider.getName() + ": " + e.getMessage());
                     throw new RuntimeException(e);
                 }
             });
             futures.add(future);
         }
-
-        // Wait for ALL uploads to finish
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
@@ -115,6 +124,29 @@ public class StorageService {
             );
         } catch (Exception e) {
             System.err.println("⚠️ Warning: Could not delete shard from " + targetProvider.getName());
+        }
+    }
+
+    public void uploadShardsToSpecificProvider(Shard shard, String fileId, StorageProvider provider) {
+        try {
+            MinioClient client = getClientForProvider(provider);
+            String objectName = fileId + "/" + shard.getIndex();
+            byte[] data = shard.getData();
+
+            boolean found = client.bucketExists(BucketExistsArgs.builder().bucket(provider.getBucketName()).build());
+            if (!found) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(provider.getBucketName()).build());
+            }
+
+            client.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(provider.getBucketName())
+                            .object(objectName)
+                            .stream(new ByteArrayInputStream(data), data.length, -1)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to upload to new provider: " + e.getMessage());
         }
     }
 

@@ -12,7 +12,7 @@ import java.util.Map;
 public class PolicyController {
 
     // Gerçek bir DB yerine şimdilik hafızada tutuyoruz (Demo için yeterli)
-    private static Map<String, Object> currentPolicy = new HashMap<>();
+    public static Map<String, Object> currentPolicy = new HashMap<>();
 
     static {
         // Varsayılan ayarlar
