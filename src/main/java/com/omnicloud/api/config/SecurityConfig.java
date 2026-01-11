@@ -29,7 +29,7 @@ public class SecurityConfig {
 
                         // 2. ADMIN ONLY ENDPOINTS (Infrastructure & Governance)
                         .requestMatchers("/api/v1/providers/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/policies/**").hasRole("ADMIN")
+                        //.requestMatchers("/api/v1/policies/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/maintenance/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/analytics/**").hasRole("ADMIN")
@@ -38,6 +38,8 @@ public class SecurityConfig {
                         // 3. SHARED ENDPOINTS (File Operations)
                         // Both Users and Admins can upload/download files
                         .requestMatchers("/api/v1/files/**").hasAnyRole("USER", "ADMIN")
+                        .requestMatchers("/api/v1/policies/**").hasAnyRole("USER", "ADMIN")
+
 
                         // 4. CATCH-ALL
                         .anyRequest().authenticated()

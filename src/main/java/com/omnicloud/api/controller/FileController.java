@@ -27,13 +27,14 @@ public class FileController {
     }
 
     @PostMapping("/upload")
-    public ResponseEntity<FileMetadata> uploadFile(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file) {
         try {
             FileMetadata metadata = fileService.uploadFile(file);
             return ResponseEntity.ok(metadata);
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
+            // Return 400 Bad Request (instead of 500) and put the text in the body
+            return ResponseEntity.status(400).body(e.getMessage());
         }
     }
 

@@ -6,5 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 
 public interface UserPolicyRepository extends JpaRepository<UserPolicy, Long> {
-    Optional<UserPolicy> findByUser(User user);
+    Optional<UserPolicy> findByUserId(long userId);
 }

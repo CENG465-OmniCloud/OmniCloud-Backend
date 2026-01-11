@@ -27,7 +27,7 @@ public class PolicyService {
 
     public UserPolicy getMyPolicy() {
         User user = getCurrentUser();
-        return policyRepository.findByUser(user)
+        return policyRepository.findByUserId(user.getId())
                 .orElseGet(() -> {
                     // Fallback: If no policy exists (old users), create one
                     return policyRepository.save(UserPolicy.builder().user(user).build());

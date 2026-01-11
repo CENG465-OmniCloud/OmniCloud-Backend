@@ -62,13 +62,20 @@ public class FileService {
         UserPolicy userPolicy = policyService.getMyPolicy();
         List<String> blockedRegions = userPolicy.getBlockedRegions();
 
-        List<StorageProvider> activeProviders = allProviders.stream()
-                .filter(p -> !blockedRegions.contains(p.getRegion()))
+        List<StorageProvider> safeProviders = allProviders.stream()
+                .filter(p -> blockedRegions.stream()
+                        .noneMatch(blocked -> blocked.trim().equalsIgnoreCase(p.getRegion().trim())))
                 .collect(Collectors.toList());
 
-        if (activeProviders.isEmpty()) {
-            throw new RuntimeException("UPLOAD FAILED: All providers are in your blocked regions!");
+        if (safeProviders.size() < 6) {
+            throw new RuntimeException("UPLOAD FAILED: Not enough safe providers! Need 6, but only found " + safeProviders.size());
         }
+
+        Collections.shuffle(safeProviders);
+        List<StorageProvider> selectedProviders = safeProviders.subList(0, 6);
+
+        System.out.println("🎲 Selected Random Team: " + selectedProviders.stream()
+                .map(StorageProvider::getName).toList());
 
         // 3. Generate Keys & Metadata
         SecretKey key = encryptionService.generateKey();
@@ -93,13 +100,13 @@ public class FileService {
 
         // 5. Upload (Pass the FILTERED list)
         // This fixes the compilation error and logic bug
-        storageService.uploadShards(shards, fileId, activeProviders);
+        storageService.uploadShards(shards, fileId, selectedProviders);
 
         // 6. Save Shard Metadata
         for (Shard s : shards) {
             // Calculate index using ACTIVE list size
-            int providerIndex = s.getIndex() % activeProviders.size();
-            StorageProvider usedProvider = activeProviders.get(providerIndex);
+            int providerIndex = s.getIndex() % selectedProviders.size();
+            StorageProvider usedProvider = selectedProviders.get(providerIndex);
 
             ShardMetadata sm = ShardMetadata.builder()
                     .shardIndex(s.getIndex())
