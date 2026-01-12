@@ -1,10 +1,12 @@
 # OmniCloud - Erasure Coded Multi-Cloud Storage API
 
-**OmniCloud** is a storage orchestration layer designed to prevent vendor lock-in by distributing encrypted file shards across multiple cloud providers using **Reed-Solomon Erasure Coding**.
+**OmniCloud** is a next-generation **RESTful Web Service** and **storage orchestration layer** that functions as a "Meta-Cloud" gateway or "Cloud-of-Clouds". Designed to resolve the "Vendor Lock-in paradox" and the systemic vulnerabilities of centralized hyperscale providers, OmniCloud democratizes enterprise-grade **Erasure Coding** technology—typically reserved for giants like Google and Microsoft—via a unified S3-compatible API.
+
+Unlike traditional backup solutions that rely on expensive 1:1 replication, OmniCloud utilizes **Reed-Solomon Erasure Coding** (derived from Rabin’s Information Dispersal Algorithm) and **AES-256 encryption** to mathematically fragment data into secure, meaningless shards. These fragments are distributed across a heterogeneous network of providers (e.g., AWS, Azure, GCP), ensuring **mathematical durability**, **self-healing** capabilities, and **plausible deniability** against vendor-level snooping.
 
 ## 🚀 Getting Started
 
-Follow[gradle](gradle) these instructions to set up the **OmniCloud** simulation environment locally.
+Follow these instructions to set up the **OmniCloud** simulation environment locally.
 
 ### 📋 Prerequisites
 * **Java 21**
@@ -46,6 +48,14 @@ ORACLE_PASSWORD=oracle_password_secure
 # --- CLOUD 6: LOCAL CLOUD CREDENTIALS ---
 LOCAL_USER=local_admin
 LOCAL_PASSWORD=local_password_secure
+
+# --- CLOUD 7: IBM CREDENTIALS ---
+IBM_USER=ibm_admin
+IBM_PASSWORD=ibm_password_secure
+
+# --- CLOUD 8: ALIBABA CREDENTIALS ---
+ALIBABA_USER=alibaba_admin
+ALIBABA_PASSWORD=alibaba_password_secure
 ```
 ---
 
@@ -56,7 +66,7 @@ We simulate 6 distinct Cloud Providers (AWS, Azure, GCP, etc.) and a Metadata Da
 Run the following command in the project root:
 
 ```bash
-docker-compose --.env-file ./..env up -d
+docker-compose --env-file ./.env up -d
 ```
 
 Note: The --env-file flag ensures Docker reads your secrets correctly.
@@ -66,15 +76,17 @@ Note: The --env-file flag ensures Docker reads your secrets correctly.
 
 After starting Docker, verify that all services are running on their designated ports:
 
-| Service | Container Name | Type | Service Port | Console Port |
-|---------|----------------|------|--------------|--------------|
-| Metadata Database | `omnicloud-metadata` | PostgreSQL | 5435 | - |
-| Cloud 1 | `cloud-1-aws-us` | MinIO (AWS US) | 9001 | 9091 |
-| Cloud 2 | `cloud-2-aws-eu` | MinIO (AWS EU) | 9002 | 9092 |
-| Cloud 3 | `cloud-3-azure` | MinIO (Azure) | 9003 | 9093 |
-| Cloud 4 | `cloud-4-gcp` | MinIO (GCP) | 9004 | 9094 |
-| Cloud 5 | `cloud-5-oracle` | MinIO (Oracle) | 9005 | 9095 |
-| Cloud 6 | `cloud-6-local` | MinIO (Local) | 9006 | 9096 |
+| Service           | Container Name       | Type            | Region       | Service Port | Console Port |
+|-------------------|----------------------|-----------------|--------------|--------------|--------------|
+| Metadata Database | `omnicloud-metadata` | PostgreSQL      | -            | 5435         | -            |
+| Cloud 1           | `cloud-1-aws-us`     | MinIO (AWS US)  | us-east-1    | 9001         | 9091         |
+| Cloud 2           | `cloud-2-aws-eu`     | MinIO (AWS EU)  | eu-central-1 | 9002         | 9092         |
+| Cloud 3           | `cloud-3-azure`      | MinIO (Azure)   | west-europe  | 9003         | 9093         |
+| Cloud 4           | `cloud-4-gcp`        | MinIO (GCP)     | us-central-1 | 9004         | 9094         |
+| Cloud 5           | `cloud-5-oracle`     | MinIO (Oracle)  | uk-london-1  | 9005         | 9095         |
+| Cloud 6           | `cloud-6-local`      | MinIO (Local)   | local-server | 9006         | 9096         |
+| Cloud 7           | `cloud-7-ibm`        | MinIO (IBM)     | us-south-1   | 9007         | 9097         |
+| Cloud 8           | `cloud-8-alibaba`    | MinIO (Alibaba) | cn-hangzhou  | 9008         | 9098         |
 
 
 ### **Basic Docker Commands**
@@ -123,20 +135,22 @@ The OmniCloud API is a RESTful Web Service designed to manage multi-cloud storag
 ### ✅ Currently Implemented Endpoints
 These endpoints are fully operational in the current build.
 
-| Controller | Method | Endpoint | Description |
-| :--- | :--- | :--- | :--- |
-| **File** | `POST` | `/api/v1/files/upload` | Stream upload a file (Encryption + Splitting). |
-| **File** | `GET` | `/api/v1/files` | List all files in the virtual bucket. |
-| **File** | `GET` | `/api/v1/files/{id}/download` | Stream download (Reconstruction + Decryption). |
-| **File** | `DELETE` | `/api/v1/files/{id}` | Permanently delete a file and all remote shards. |
-| **Files** | `GET` | `/api/v1/files/{id}/metadata` | View shard distribution and health status. |
-| **Providers** | `GET` | `/api/v1/providers` | List connected cloud providers (AWS, Azure, etc.). |
-| **Providers** | `POST` | `/api/v1/providers` | Add a new cloud provider configuration (Access Keys). |
-| **Providers** | `DELETE` | `/api/v1/providers/{id}` | Remove a provider from the pool. |
-| **Maintenance** | `POST` | `/api/v1/maintenance/repair/{id}` | Manually trigger a reconstruction job for a file. |
-| **Admin** | `GET` | `/api/v1/admin/health` | System-wide health check of all connected clouds. |
-| **Auth** | `POST` | `/api/v1/auth/register` | Register a new tenant organization. |
-| **Auth** | `POST` | `/api/v1/auth/login` | Authenticate and obtain JWT Bearer token. |
-| **Policies** | `PUT` | `/api/v1/policies/geo-fence` | Update allowed/blocked regions for data placement. |
-| **Analytics** | `GET` | `/api/v1/analytics/storage` | Get current storage usage and cost savings report. |
-| **Audit** | `GET` | `/api/v1/audit/logs` | Retrieve security access logs for files. |
+| Controller      | Method   | Endpoint                          | Description |
+|:----------------|:---------|:----------------------------------| :--- |
+| **Policies**    | `PUT`    | `/api/v1/policies/geo-fence`      | Update allowed/blocked regions for data placement. |
+| **Policies**    | `GET`    | `/api/v1/policies`                | Retrieve global data placement and redundancy policies. |
+| **Providers**   | `GET`    | `/api/v1/providers`               | List connected cloud providers (AWS, Azure, etc.). |
+| **Providers**   | `POST`   | `/api/v1/providers`               | Add a new cloud provider configuration (Access Keys). |
+| **Providers**   | `POST`   | `/api/v1/providers/bulk`          | RBatch register multiple cloud providers (JSON array). |
+| **Providers**   | `DELETE` | `/api/v1/providers/{id}`          | Remove a provider from the pool. |
+| **Maintenance** | `POST`   | `/api/v1/maintenance/repair/{id}` | Manually trigger a reconstruction job for a file. |
+| **File**        | `POST`   | `/api/v1/files/upload`            | Stream upload a file (Encryption + Splitting). |
+| **File**        | `GET`    | `/api/v1/files`                   | List all files in the virtual bucket. |
+| **Files**       | `GET`    | `/api/v1/files/{id}/metadata`     | View shard distribution and health status. |
+| **File**        | `GET`    | `/api/v1/files/{id}/download`     | Stream download (Reconstruction + Decryption). |
+| **File**        | `DELETE` | `/api/v1/files/{id}`              | Permanently delete a file and all remote shards. |
+| **Auth**        | `POST`   | `/api/v1/auth/register`           | Register a new tenant organization. |
+| **Auth**        | `POST`   | `/api/v1/auth/login`              | Authenticate and obtain JWT Bearer token. |
+| **Audit**       | `GET`    | `/api/v1/audit/logs`              | Retrieve security access logs for files. |
+| **Analytics**   | `GET`    | `/api/v1/analytics/storage`       | Get current storage usage and cost savings report. |
+| **Admin**       | `GET`    | `/api/v1/admin/health`            | System-wide health check of all connected clouds. |
